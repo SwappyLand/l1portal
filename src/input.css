@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+    --navy-850: #0B192C;
+    --navy-900: #07101B;
+    --electric-500: #0066FF;
+    --electric-600: #0052CC;
+}
+
+.bg-navy-850 { background-color: var(--navy-850); }
+.bg-navy-900 { background-color: var(--navy-900); }
+.bg-electric-500 { background-color: var(--electric-500); }
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: #F8FAFC;
+    color: #1e293b;
+}
+
+.card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px -5px rgba(0, 102, 255, 0.1);
+}

@@ -1,119 +1,121 @@
 // --- Local Storage Keys ---
 const STORAGE_USERS_KEY = 'l1_portal_users';
 const STORAGE_LINKS_KEY = 'l1_portal_links';
-const STORAGE_SESSION_KEY = 'l1SessionUser';
 const STORAGE_MODES_KEY = 'l1LinkModes';
 
 let users = [];
 let links = [];
-let currentUser = JSON.parse(localStorage.getItem(STORAGE_SESSION_KEY) || 'null');
+let currentUser = null;
 let linkModes = JSON.parse(localStorage.getItem(STORAGE_MODES_KEY) || '{}');
+let csrfToken = '';
 let currentCategory = 'Dashboard';
-let searchQuery = '';
+localStorage.removeItem(STORAGE_USERS_KEY);
+localStorage.removeItem(STORAGE_LINKS_KEY);
+localStorage.removeItem('l1SessionUser');
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    })[character]);
+}
+
+async function apiRequest(url, options = {}) {
+    const method = options.method || 'GET';
+    const headers = new Headers(options.headers || {});
+    if (options.body && !headers.has('Content-Type')) {
+        headers.set('Content-Type', 'application/json');
+    }
+    if (method !== 'GET' && method !== 'HEAD') {
+        if (!csrfToken) {
+            const tokenResponse = await fetch('/api/auth/csrf', { credentials: 'same-origin' });
+            if (!tokenResponse.ok) throw new Error('Unable to initialize a secure session.');
+            csrfToken = (await tokenResponse.json()).csrfToken;
+        }
+        headers.set('X-CSRF-Token', csrfToken);
+    }
+
+    const response = await fetch(url, { ...options, method, headers, credentials: 'same-origin' });
+    if (response.status === 204) return null;
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(payload.error || 'The server request failed.');
+    }
+    return payload;
+}
+
+async function loadPortalData() {
+    links = await apiRequest('/api/links');
+}
 
 // --- Initialization ---
 async function initSystem() {
-    // Load Users with localStorage persistence check
-    const savedUsers = localStorage.getItem(STORAGE_USERS_KEY);
-    if (savedUsers) {
-        try {
-            users = JSON.parse(savedUsers);
-        } catch (e) {
-            users = [];
+    try {
+        const [session, csrf] = await Promise.all([
+            apiRequest('/api/auth/me'),
+            fetch('/api/auth/csrf', { credentials: 'same-origin' }).then(async response => {
+                if (!response.ok) throw new Error('Unable to initialize a secure session.');
+                return response.json();
+            })
+        ]);
+        currentUser = session.user;
+        csrfToken = csrf.csrfToken;
+        if (currentUser) {
+            await loadPortalData();
+            showPortalInterface();
+        } else {
+            document.getElementById('auth-overlay')?.classList.remove('hidden');
         }
-    }
-
-    if (!users || users.length === 0) {
-        try {
-            const uRes = await fetch('users.json');
-            if (uRes.ok) {
-                users = await uRes.json();
-            } else {
-                throw new Error('Failed to load users.json');
-            }
-        } catch (e) {
-            users = [
-                { id: 1, email: "admin@sarvatra.in", password: "admin123", role: "admin" },
-                { id: 2, email: "viewer@sarvatra.in", password: "viewer123", role: "viewer" }
-            ];
-        }
-        localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(users));
-    }
-
-    // Load Links with localStorage persistence check
-    const savedLinks = localStorage.getItem(STORAGE_LINKS_KEY);
-    if (savedLinks) {
-        try {
-            links = JSON.parse(savedLinks);
-        } catch (e) {
-            links = [];
-        }
-    }
-
-    if (!links || links.length === 0) {
-        try {
-            const lRes = await fetch('portal-data.json');
-            if (lRes.ok) {
-                links = await lRes.json();
-            } else {
-                throw new Error('Failed to load portal-data.json');
-            }
-        } catch (e) {
-            links = [
-                { id: 1, title: "SRVT UPI SMT Monitoring Portal", category: "Monitoring", tag: "UPI", dcUrl: "http://10.61.176.10:9090/smt/#!/srvtupi", drUrl: "", desc: "SRVT UPI SMT Monitoring Portal and service telemetry.", icon: "fa-chart-line" },
-                { id: 4, title: "UPI CBSGW", category: "Gateway", tag: "UPI", dcUrl: "https://10.61.159.13:8443/cbsgw/", drUrl: "https://10.158.58.25:8443/cbsgw/#!/station", desc: "UPI Core Banking Switch Gateway with independent DC/DR mapping.", icon: "fa-network-wired" },
-                { id: 8, title: "IMPS Switch", category: "Switch", tag: "IMPS", dcUrl: "https://10.61.158.1:8443/jpos/", drUrl: "https://10.158.58.10:8443/jpos/", desc: "IMPS Switch transaction processing interface.", icon: "fa-right-left" },
-                { id: 13, title: "UPI Switch", category: "Switch", tag: "UPI", dcUrl: "http://172.21.0.125:9091/srvt-upi/#!/login", drUrl: "http://10.158.172.125:9091/srvt-upi/#!/login", desc: "SRVT UPI Switch login portal with dedicated DR mapping.", icon: "fa-right-left" },
-                { id: 14, title: "Accops SMUI", category: "Other", tag: "SMUI", dcUrl: "https://172.21.0.12:10443/smui/", drUrl: "https://10.158.172.12:10443/smui/", desc: "Accops virtual desktop & application access portal.", icon: "fa-desktop" }
-            ];
-        }
-        localStorage.setItem(STORAGE_LINKS_KEY, JSON.stringify(links));
-    }
-
-    links = links.map(({ pinned, ...link }) => ({
-        ...link,
-        category: link.category === 'Pinned' ? 'Other' : link.category,
-        icon: link.icon === 'fa-thumbtack' ? 'fa-desktop' : link.icon
-    }));
-    localStorage.setItem(STORAGE_LINKS_KEY, JSON.stringify(links));
-
-    if (currentUser) {
-        showPortalInterface();
-    } else {
-        const overlay = document.getElementById('auth-overlay');
-        if (overlay) overlay.classList.remove('hidden');
-    }
-}
-
-// --- Authentication Handler ---
-function handleLogin(event) {
-    event.preventDefault();
-    const emailInput = document.getElementById('login-email').value.trim().toLowerCase();
-    const passwordInput = document.getElementById('login-password').value;
-    const errorBox = document.getElementById('login-error');
-
-    const matchedUser = users.find(u => u.email.toLowerCase() === emailInput && u.password === passwordInput);
-
-    if (matchedUser) {
-        currentUser = matchedUser;
-        localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify(currentUser));
-        if (errorBox) errorBox.classList.add('hidden');
-        showPortalInterface();
-    } else {
+    } catch (error) {
+        const errorBox = document.getElementById('login-error');
         if (errorBox) {
-            errorBox.textContent = "Invalid email address or password. Please check your credentials.";
+            errorBox.textContent = `Unable to connect to the portal server: ${error.message}`;
             errorBox.classList.remove('hidden');
         }
     }
 }
 
-function logoutUser() {
-    currentUser = null;
-    localStorage.removeItem(STORAGE_SESSION_KEY);
-    const overlay = document.getElementById('auth-overlay');
-    const wrapper = document.getElementById('portal-wrapper');
-    if (overlay) overlay.classList.remove('hidden');
-    if (wrapper) wrapper.classList.add('hidden');
+// --- Authentication Handler ---
+async function handleLogin(event) {
+    event.preventDefault();
+    const emailInput = document.getElementById('login-email').value.trim().toLowerCase();
+    const passwordInput = document.getElementById('login-password').value;
+    const errorBox = document.getElementById('login-error');
+
+    try {
+        const result = await apiRequest('/api/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({ email: emailInput, password: passwordInput })
+        });
+        currentUser = result.user;
+        csrfToken = '';
+        await apiRequest('/api/auth/csrf').then(result => { csrfToken = result.csrfToken; });
+        await loadPortalData();
+        if (errorBox) errorBox.classList.add('hidden');
+        showPortalInterface();
+    } catch (error) {
+        if (errorBox) {
+            errorBox.textContent = error.message;
+            errorBox.classList.remove('hidden');
+        }
+    }
+}
+
+async function logoutUser() {
+    try {
+        await apiRequest('/api/auth/logout', { method: 'POST' });
+        currentUser = null;
+        users = [];
+        links = [];
+        csrfToken = '';
+        document.getElementById('auth-overlay')?.classList.remove('hidden');
+        document.getElementById('portal-wrapper')?.classList.add('hidden');
+    } catch (error) {
+        showToast(error.message, true);
+    }
 }
 
 // --- Portal Interface Setup ---
@@ -157,7 +159,7 @@ function renderSidebar() {
     const categories = ['Dashboard', 'Monitoring', 'Gateway', 'Switch', 'Enterprise', 'SMS', 'Admin', 'Other'];
     
     let html = `
-        <button onclick="selectCategory('Dashboard')" class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-all ${currentCategory === 'Dashboard' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}">
+        <button data-category="Dashboard" class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-all ${currentCategory === 'Dashboard' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}">
             <div class="flex items-center space-x-3">
                 <i class="fa-solid fa-house w-5 text-center"></i>
                 <span>Dashboard</span>
@@ -171,7 +173,7 @@ function renderSidebar() {
         const count = links.filter(l => l.category === cat).length;
         const isActive = currentCategory === cat;
         html += `
-            <button onclick="selectCategory('${cat}')" class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${isActive ? 'bg-blue-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}">
+            <button data-category="${escapeHtml(cat)}" class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${isActive ? 'bg-blue-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}">
                 <div class="flex items-center space-x-3">
                     <i class="fa-solid ${getCategoryIcon(cat)} w-5 text-center"></i>
                     <span>${cat}</span>
@@ -217,7 +219,9 @@ function renderPortalContent() {
     const query = (document.getElementById('global-search')?.value || '').toLowerCase();
 
     if (query) {
-        filtered = links.filter(l => l.title.toLowerCase().includes(query) || l.desc.toLowerCase().includes(query) || l.tag.toLowerCase().includes(query));
+        filtered = links.filter(l => [
+            l.title, l.desc, l.tag, l.category, l.dcUrl, l.drUrl
+        ].some(value => (value || '').toLowerCase().includes(query)));
         if (titleEl) titleEl.textContent = `Search Results (${filtered.length})`;
         if (subtitleEl) subtitleEl.textContent = `Showing URLs matching "${query}"`;
     } else {
@@ -233,7 +237,7 @@ function renderPortalContent() {
         // Open All Button for category
         if (currentCategory !== 'Dashboard' && filtered.length > 0 && openAllContainer) {
             openAllContainer.innerHTML = `
-                <button onclick="openAllCategory('${currentCategory}')" class="text-xs bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 rounded-lg font-semibold transition-all">
+                <button data-open-category="${escapeHtml(currentCategory)}" class="text-xs bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 rounded-lg font-semibold transition-all">
                     <i class="fa-solid fa-external-link-alt mr-1"></i> Open All (${filtered.length})
                 </button>
             `;
@@ -257,36 +261,36 @@ function createCardHTML(item) {
                 <div class="flex items-start justify-between gap-2 mb-3">
                     <div class="flex items-center space-x-2.5">
                         <div class="h-9 w-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold flex-shrink-0">
-                            <i class="fa-solid ${item.icon || 'fa-link'}"></i>
+                            <i class="fa-solid ${escapeHtml(item.icon || 'fa-link')}"></i>
                         </div>
                         <div>
-                            <span class="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2 py-0.5 rounded">${item.tag || item.category}</span>
-                            <h3 class="font-bold text-slate-900 text-sm mt-0.5 line-clamp-1">${item.title}</h3>
+                            <span class="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2 py-0.5 rounded">${escapeHtml(item.tag || item.category)}</span>
+                            <h3 class="font-bold text-slate-900 text-sm mt-0.5 line-clamp-1">${escapeHtml(item.title)}</h3>
                         </div>
                     </div>
                     <div class="flex items-center space-x-1.5 flex-shrink-0">
                         ${hasDr ? `
                             <div class="inline-flex rounded-lg p-0.5 bg-slate-100 border border-slate-200 text-[10px] font-bold">
-                                <button onclick="setLinkMode(${item.id}, 'dc')" class="px-2 py-1 rounded-md transition-all ${mode === 'dc' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}">DC</button>
-                                <button onclick="setLinkMode(${item.id}, 'dr')" class="px-2 py-1 rounded-md transition-all ${mode === 'dr' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}">DR</button>
+                                <button data-link-id="${escapeHtml(item.id)}" data-link-mode="dc" class="px-2 py-1 rounded-md transition-all ${mode === 'dc' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}">DC</button>
+                                <button data-link-id="${escapeHtml(item.id)}" data-link-mode="dr" class="px-2 py-1 rounded-md transition-all ${mode === 'dr' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}">DR</button>
                             </div>
                         ` : `<span class="text-[10px] font-bold px-2 py-1 bg-slate-100 text-slate-500 rounded border border-slate-200">DC ONLY</span>`}
                         
                     </div>
                 </div>
-                <p class="text-xs text-slate-500 line-clamp-2 mb-4">${item.desc || 'Operational department portal endpoint.'}</p>
+                <p class="text-xs text-slate-500 line-clamp-2 mb-4">${escapeHtml(item.desc || 'Operational department portal endpoint.')}</p>
             </div>
 
             <div>
                 <div class="bg-slate-50 rounded-xl p-2.5 mb-3 border border-slate-100 flex items-center justify-between">
-                    <span class="text-[11px] font-mono text-slate-600 truncate mr-2 select-all">${activeUrl}</span>
-                    <button onclick="copyToClipboard('${activeUrl}')" class="text-slate-400 hover:text-blue-600 p-1 flex-shrink-0 transition-colors" title="Copy URL">
+                    <span class="text-[11px] font-mono text-slate-600 truncate mr-2 select-all">${escapeHtml(activeUrl)}</span>
+                    <button data-copy-url="${escapeHtml(activeUrl)}" class="text-slate-400 hover:text-blue-600 p-1 flex-shrink-0 transition-colors" title="Copy URL">
                         <i class="fa-regular fa-copy text-xs"></i>
                     </button>
                 </div>
                 <div class="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
-                    <span class="text-slate-400 uppercase font-bold text-[10px]">${item.category}</span>
-                    <a href="${activeUrl}" target="_blank" class="inline-flex items-center space-x-1.5 font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-all">
+                    <span class="text-slate-400 uppercase font-bold text-[10px]">${escapeHtml(item.category)}</span>
+                    <a href="${escapeHtml(activeUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center space-x-1.5 font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-all">
                         <span>Open</span>
                         <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
                     </a>
@@ -324,11 +328,15 @@ function showToast(message, isError = false) {
     const toast = document.createElement('div');
     toast.id = 'toast-notification';
     toast.className = `fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl shadow-xl text-xs font-bold text-white flex items-center space-x-2 transition-all ${isError ? 'bg-red-600' : 'bg-slate-900 border border-slate-700'}`;
-    toast.innerHTML = `<i class="fa-solid ${isError ? 'fa-circle-exclamation text-white' : 'fa-circle-check text-blue-400'}"></i><span>${message}</span>`;
+    const icon = document.createElement('i');
+    icon.className = `fa-solid ${isError ? 'fa-circle-exclamation text-white' : 'fa-circle-check text-blue-400'}`;
+    const text = document.createElement('span');
+    text.textContent = message;
+    toast.append(icon, text);
     document.body.appendChild(toast);
 
     setTimeout(() => {
-        toast.style.opacity = '0';
+        toast.classList.add('opacity-0');
         setTimeout(() => toast.remove(), 300);
     }, 3000);
 }
@@ -341,7 +349,7 @@ function openAllCategory(cat) {
     items.forEach(item => {
         const mode = linkModes[item.id] || 'dc';
         const url = (mode === 'dr' && item.drUrl) ? item.drUrl : item.dcUrl;
-        window.open(url, '_blank');
+        window.open(url, '_blank', 'noopener,noreferrer');
     });
 }
 
@@ -363,32 +371,39 @@ function handleAddUrl(event) {
     if (currentUser?.role !== 'admin') return;
 
     const newLink = {
-        id: Date.now(),
         title: document.getElementById('add-title').value,
         category: document.getElementById('add-category').value,
         tag: document.getElementById('add-tag').value || 'Custom',
         dcUrl: document.getElementById('add-dc').value,
         drUrl: document.getElementById('add-dr').value || '',
         desc: "Custom operational link added by administrator.",
-        icon: "fa-link",
+        icon: "fa-link"
     };
 
-    links.push(newLink);
-    localStorage.setItem(STORAGE_LINKS_KEY, JSON.stringify(links));
-    closeAddModal();
-    renderSidebar();
-    renderPortalContent();
-    showToast("Custom URL added successfully!");
-    event.target.reset();
+    apiRequest('/api/links', { method: 'POST', body: JSON.stringify(newLink) })
+        .then(link => {
+            links.push(link);
+            closeAddModal();
+            renderSidebar();
+            renderPortalContent();
+            showToast("Custom URL added successfully!");
+            event.target.reset();
+        })
+        .catch(error => showToast(error.message, true));
 }
 
-function openAdminModal() {
+async function openAdminModal() {
     if (currentUser?.role !== 'admin') {
         showToast("Access Denied.", true);
         return;
     }
-    renderUsersTable();
-    document.getElementById('admin-modal')?.classList.remove('hidden');
+    try {
+        users = await apiRequest('/api/users');
+        renderUsersTable();
+        document.getElementById('admin-modal')?.classList.remove('hidden');
+    } catch (error) {
+        showToast(error.message, true);
+    }
 }
 
 function closeAdminModal() {
@@ -397,20 +412,20 @@ function closeAdminModal() {
 
 function renderUsersTable() {
     const tbody = document.getElementById('users-table-body');
-    if (!tbody) return;
+    if (!tbody || !currentUser) return;
 
     tbody.innerHTML = users.map(u => `
         <tr>
-            <td class="p-3 font-semibold text-slate-900">${u.email}</td>
-            <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${u.role === 'admin' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}">${u.role}</span></td>
+            <td class="p-3 font-semibold text-slate-900">${escapeHtml(u.email)}</td>
+            <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${u.role === 'admin' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}">${escapeHtml(u.role)}</span></td>
             <td class="p-3 text-right">
-                ${u.email !== currentUser.email ? `<button onclick="deleteUser(${u.id})" class="text-red-500 hover:text-red-700 font-semibold">Delete</button>` : '<span class="text-slate-400">Current</span>'}
+                ${u.email !== currentUser.email ? `<button data-delete-user="${escapeHtml(u.id)}" class="text-red-500 hover:text-red-700 font-semibold">Delete</button>` : '<span class="text-slate-400">Current</span>'}
             </td>
         </tr>
     `).join('');
 }
 
-function handleCreateUser(event) {
+async function handleCreateUser(event) {
     event.preventDefault();
     if (currentUser?.role !== 'admin') return;
 
@@ -418,30 +433,63 @@ function handleCreateUser(event) {
     const password = document.getElementById('new-user-pass').value;
     const role = document.getElementById('new-user-role').value;
 
-    if (users.some(u => u.email.toLowerCase() === email.toLowerCase())) {
-        showToast("User with this email already exists!", true);
-        return;
+    try {
+        const newUser = await apiRequest('/api/users', {
+            method: 'POST',
+            body: JSON.stringify({ email, password, role })
+        });
+        users.push(newUser);
+        renderUsersTable();
+        showToast(`User ${email} created successfully!`);
+        event.target.reset();
+    } catch (error) {
+        showToast(error.message, true);
     }
-
-    const newUser = { id: Date.now(), email, password, role };
-    users.push(newUser);
-    localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(users));
-    renderUsersTable();
-    showToast(`User ${email} created successfully!`);
-    event.target.reset();
 }
 
-function deleteUser(id) {
+async function deleteUser(id) {
     if (currentUser?.role !== 'admin') return;
-    users = users.filter(u => u.id !== id);
-    localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(users));
-    renderUsersTable();
-    showToast("User deleted successfully.");
+    try {
+        await apiRequest(`/api/users/${id}`, { method: 'DELETE' });
+        users = users.filter(user => user.id !== id);
+        renderUsersTable();
+        showToast("User deleted successfully.");
+    } catch (error) {
+        showToast(error.message, true);
+    }
 }
 
 // Search Event Listener
 document.addEventListener('DOMContentLoaded', () => {
     initSystem();
+    document.addEventListener('click', event => {
+        const target = event.target instanceof Element ? event.target : null;
+        const button = target?.closest('button');
+        if (!button) return;
+
+        const action = button.dataset.action;
+        if (action === 'open-admin') openAdminModal();
+        if (action === 'close-admin') closeAdminModal();
+        if (action === 'open-add') openAddModal();
+        if (action === 'close-add') closeAddModal();
+        if (action === 'logout') logoutUser();
+        if (button.dataset.category) selectCategory(button.dataset.category);
+        if (button.dataset.openCategory) openAllCategory(button.dataset.openCategory);
+        if (button.dataset.linkId && ['dc', 'dr'].includes(button.dataset.linkMode)) {
+            setLinkMode(button.dataset.linkId, button.dataset.linkMode);
+        }
+        if (button.dataset.deleteUser) deleteUser(button.dataset.deleteUser);
+
+        const copyButton = target.closest('[data-copy-url]');
+        if (copyButton) {
+            copyToClipboard(copyButton.dataset.copyUrl);
+        }
+    });
+    document.addEventListener('submit', event => {
+        if (event.target.id === 'login-form') handleLogin(event);
+        if (event.target.id === 'create-user-form') handleCreateUser(event);
+        if (event.target.id === 'add-url-form') handleAddUrl(event);
+    });
     const searchInput = document.getElementById('global-search');
     if (searchInput) {
         searchInput.addEventListener('input', () => {

@@ -4,22 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>L1 Secure Portal | Role-Based Access</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/app.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --navy-850: #0B192C;
-            --navy-900: #07101B;
-            --electric-500: #0066FF;
-            --electric-600: #0052CC;
-        }
-        .bg-navy-850 { background-color: var(--navy-850); }
-        .bg-navy-900 { background-color: var(--navy-900); }
-        .bg-electric-500 { background-color: var(--electric-500); }
-        body { font-family: 'Inter', sans-serif; background-color: #F8FAFC; color: #1e293b; }
-        .card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 25px -5px rgba(0, 102, 255, 0.1); }
-    </style>
 </head>
 <body class="h-full antialiased overflow-hidden flex flex-col">
 
@@ -34,7 +21,7 @@
                 <p class="text-xs text-blue-200 mt-1">Authenticate with your department credentials</p>
             </div>
             
-            <form id="login-form" onsubmit="handleLogin(event)" class="p-6 space-y-4">
+            <form id="login-form" class="p-6 space-y-4">
                 <div>
                     <label class="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1">Email Address</label>
                     <input type="email" id="login-email" required placeholder="admin@sarvatra.in" 
@@ -73,7 +60,7 @@
 
             <!-- Admin Management Tab (Only visible to Admin) -->
             <div id="admin-menu-item" class="px-3 pb-2 hidden">
-                <button onclick="openAdminModal()" class="w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl text-sm font-semibold bg-amber-500 hover:bg-amber-600 text-white shadow transition-all">
+                <button data-action="open-admin" class="w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl text-sm font-semibold bg-amber-500 hover:bg-amber-600 text-white shadow transition-all">
                     <i class="fa-solid fa-users-gear w-5 text-center"></i>
                     <span>User Management</span>
                 </button>
@@ -84,7 +71,7 @@
                     <div id="current-username" class="text-xs font-bold text-white truncate">User</div>
                     <div class="text-[10px] text-slate-300 truncate">Authenticated</div>
                 </div>
-                <button onclick="logoutUser()" class="text-xs text-red-300 hover:text-white p-2 rounded-lg bg-slate-800 hover:bg-red-600 transition-colors" title="Sign Out">
+                <button data-action="logout" class="text-xs text-red-300 hover:text-white p-2 rounded-lg bg-slate-800 hover:bg-red-600 transition-colors" title="Sign Out">
                     <i class="fa-solid fa-right-from-bracket"></i>
                 </button>
             </div>
@@ -103,7 +90,7 @@
                     </div>
                 </div>
                 <div class="flex items-center space-x-4">
-                    <button id="add-url-btn" onclick="openAddModal()" class="hidden flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition-all">
+                    <button id="add-url-btn" data-action="open-add" class="hidden flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition-all">
                         <i class="fa-solid fa-plus text-xs"></i>
                         <span>Add Custom URL</span>
                     </button>
@@ -132,15 +119,15 @@
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
             <div class="px-6 py-4 bg-navy-850 text-white flex items-center justify-between">
                 <h3 class="font-bold text-base"><i class="fa-solid fa-users-gear mr-2"></i>User Access Management (Admin Only)</h3>
-                <button onclick="closeAdminModal()" class="text-slate-300 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+                <button data-action="close-admin" class="text-slate-300 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
             </div>
             <div class="p-6 space-y-6">
                 <!-- Add User Form -->
-                <form onsubmit="handleCreateUser(event)" class="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                <form id="create-user-form" class="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                     <h4 class="text-xs font-bold uppercase text-slate-700">Create New User</h4>
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <input type="email" id="new-user-email" required placeholder="user@sarvatra.in" class="px-3 py-2 border rounded-lg text-xs">
-                        <input type="password" id="new-user-pass" required placeholder="Password" class="px-3 py-2 border rounded-lg text-xs">
+                        <input type="password" id="new-user-pass" required minlength="12" maxlength="128" autocomplete="new-password" placeholder="Password (12+ characters)" class="px-3 py-2 border rounded-lg text-xs">
                         <select id="new-user-role" class="px-3 py-2 border rounded-lg text-xs bg-white text-slate-800">
                             <option value="viewer">Normal Viewer</option>
                             <option value="admin">Administrator</option>
@@ -174,9 +161,9 @@
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4">
             <div class="flex justify-between items-center pb-3 border-b">
                 <h3 class="font-bold text-base text-slate-900">Add Operational URL</h3>
-                <button onclick="closeAddModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+                <button data-action="close-add" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
             </div>
-            <form onsubmit="handleAddUrl(event)" class="space-y-3 text-xs">
+            <form id="add-url-form" class="space-y-3 text-xs">
                 <div>
                     <label class="block font-semibold mb-1 uppercase text-slate-700">Title</label>
                     <input type="text" id="add-title" required class="w-full p-2.5 border rounded-lg text-slate-900">
@@ -210,7 +197,7 @@
                     </div>
                 </div>
                 <div class="flex justify-end space-x-2 pt-3 border-t">
-                    <button type="button" onclick="closeAddModal()" class="px-4 py-2 border rounded-lg text-slate-600">Cancel</button>
+                    <button type="button" data-action="close-add" class="px-4 py-2 border rounded-lg text-slate-600">Cancel</button>
                     <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg font-bold">Save URL</button>
                 </div>
             </form>
