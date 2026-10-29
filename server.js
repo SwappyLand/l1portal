@@ -43,12 +43,13 @@ app.use(helmet({
         directives: {
             defaultSrc: ["'self'"],
             scriptSrc: ["'self'"],
-            styleSrc: ["'self'", 'https://cdnjs.cloudflare.com', 'https://fonts.googleapis.com'],
-            fontSrc: ["'self'", 'https://cdnjs.cloudflare.com', 'https://fonts.gstatic.com', 'data:'],
+            styleSrc: ["'self'"],
+            fontSrc: ["'self'"],
             imgSrc: ["'self'", 'data:'],
             connectSrc: ["'self'"],
             objectSrc: ["'none'"],
             baseUri: ["'self'"],
+            formAction: ["'self'"],
             frameAncestors: ["'none'"]
         }
     },
@@ -301,10 +302,14 @@ app.post('/api/links', requireCsrf, requireAuth, requireAdmin, asyncRoute(async 
     res.status(201).json(result.rows[0]);
 }));
 
+app.use(express.static(path.join(projectDir, 'public'), {
+    dotfiles: 'deny',
+    etag: true,
+    maxAge: isProduction ? '1h' : 0
+}));
 app.get('/', (req, res) => res.sendFile(path.join(projectDir, 'l1_portal_client.html')));
 app.get('/l1_portal_client.html', (req, res) => res.sendFile(path.join(projectDir, 'l1_portal_client.html')));
 app.get('/auth.js', (req, res) => res.sendFile(path.join(projectDir, 'auth.js')));
-app.get('/app.css', (req, res) => res.sendFile(path.join(projectDir, 'public', 'app.css')));
 
 app.use((error, req, res, next) => {
     console.error('Request failed:', error);
