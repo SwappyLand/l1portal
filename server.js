@@ -38,6 +38,33 @@ if (isProduction) {
 }
 
 app.disable('x-powered-by');
+pool.on('error', error => {
+    console.error(JSON.stringify({
+        level: 'error',
+        event: 'postgres_pool_error',
+        errorName: error.name,
+        errorCode: error.code
+    }));
+});
+app.use((req, res, next) => {
+    const requestId = crypto.randomUUID();
+    const startedAt = process.hrtime.bigint();
+    req.requestId = requestId;
+    res.set('X-Request-Id', requestId);
+    res.on('finish', () => {
+        console.info(JSON.stringify({
+            level: 'info',
+            event: 'http_request',
+            requestId,
+            method: req.method,
+            path: req.path,
+            status: res.statusCode,
+            durationMs: Number(process.hrtime.bigint() - startedAt) / 1e6,
+            remoteAddress: req.ip
+        }));
+    });
+    next();
+});
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
@@ -80,6 +107,16 @@ app.use('/api', (req, res, next) => {
 });
 
 const roleSchema = z.enum(['admin', 'viewer']);
+
+function securityEvent(req, event, details = {}) {
+    console.info(JSON.stringify({
+        level: 'info',
+        event,
+        requestId: req.requestId,
+        remoteAddress: req.ip,
+        ...details
+    }));
+}
 
 function asyncRoute(handler) {
     return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
@@ -133,6 +170,15 @@ app.get('/api/health', asyncRoute(async (req, res) => {
     res.json({ status: 'ok' });
 }));
 
+app.get('/api/health/live', (req, res) => {
+    res.json({ status: 'ok' });
+});
+
+app.get('/api/health/ready', asyncRoute(async (req, res) => {
+    await pool.query('SELECT 1');
+    res.json({ status: 'ready' });
+}));
+
 app.get('/api/auth/csrf', (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json({ csrfToken: csrfToken(req) });
@@ -144,6 +190,14 @@ const loginLimiter = rateLimit({
     standardHeaders: 'draft-7',
     legacyHeaders: false,
     message: { error: 'Too many sign-in attempts. Try again later.' }
+});
+
+const passwordChangeLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    message: { error: 'Too many password change attempts. Try again later.' }
 });
 
 app.post('/api/auth/login', loginLimiter, requireCsrf, asyncRoute(async (req, res) => {
@@ -163,6 +217,7 @@ app.post('/api/auth/login', loginLimiter, requireCsrf, asyncRoute(async (req, re
         : await argon2.verify(await DUMMY_PASSWORD_HASH, parsedPassword.data);
 
     if (!user || !validPassword) {
+        securityEvent(req, 'auth_login_failed');
         return res.status(401).json({ error: 'Invalid email address or password.' });
     }
 
@@ -171,6 +226,7 @@ app.post('/api/auth/login', loginLimiter, requireCsrf, asyncRoute(async (req, re
     });
     req.session.user = publicUser(user);
     csrfToken(req);
+    securityEvent(req, 'auth_login_succeeded', { userId: user.id });
     res.set('Cache-Control', 'no-store');
     res.json({ user: req.session.user });
 }));
@@ -212,6 +268,56 @@ app.get('/api/users', requireAuth, requireAdmin, asyncRoute(async (req, res) => 
     res.json(result.rows);
 }));
 
+app.post('/api/auth/change-password', passwordChangeLimiter, requireCsrf, requireAuth, asyncRoute(async (req, res) => {
+    const parsed = z.object({
+        oldPassword: z.string().min(1).max(128),
+        newPassword: passwordSchema
+    }).safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: 'Provide your current password and a new password of 12–128 characters.' });
+    }
+
+    const userId = req.session.user.id;
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const user = await client.query('SELECT password_hash FROM users WHERE id = $1 FOR UPDATE', [
+            userId
+        ]);
+        if (!user.rowCount || !(await argon2.verify(user.rows[0].password_hash, parsed.data.oldPassword))) {
+            await client.query('ROLLBACK');
+            return res.status(401).json({ error: 'Your current password is incorrect.' });
+        }
+
+        const passwordHash = await argon2.hash(parsed.data.newPassword, { type: argon2.argon2id });
+        await client.query('UPDATE users SET password_hash = $1 WHERE id = $2', [
+            passwordHash,
+            userId
+        ]);
+        await client.query(
+            "DELETE FROM user_sessions WHERE sess->'user'->>'id' = $1",
+            [String(userId)]
+        );
+        await client.query('COMMIT');
+    } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+    } finally {
+        client.release();
+    }
+
+    await new Promise((resolve, reject) => {
+        req.session.destroy(error => error ? reject(error) : resolve());
+    });
+    res.clearCookie('l1portal.sid', {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: 'strict'
+    });
+    securityEvent(req, 'auth_password_changed', { userId });
+    res.json({ message: 'Your password has been changed. Sign in again with your new password.' });
+}));
+
 app.post('/api/users', requireCsrf, requireAuth, requireAdmin, asyncRoute(async (req, res) => {
     const parsed = z.object({
         email: emailSchema,
@@ -229,6 +335,11 @@ app.post('/api/users', requireCsrf, requireAuth, requireAdmin, asyncRoute(async 
             'INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3) RETURNING id, email, role',
             [parsed.data.email, passwordHash, parsed.data.role]
         );
+        securityEvent(req, 'admin_user_created', {
+            actorId: req.session.user.id,
+            targetId: result.rows[0].id,
+            role: result.rows[0].role
+        });
         res.status(201).json(publicUser(result.rows[0]));
     } catch (error) {
         if (error.code === '23505') {
@@ -236,6 +347,56 @@ app.post('/api/users', requireCsrf, requireAuth, requireAdmin, asyncRoute(async 
         }
         throw error;
     }
+}));
+
+app.post('/api/users/:id/password', requireCsrf, requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+    const id = z.string()
+        .regex(/^[1-9]\d{0,18}$/)
+        .refine(value => BigInt(value) <= 9223372036854775807n)
+        .safeParse(req.params.id);
+    const parsed = z.object({ password: passwordSchema }).safeParse(req.body);
+    if (!id.success) {
+        return res.status(400).json({ error: 'Invalid user ID.' });
+    }
+    if (!parsed.success) {
+        return res.status(400).json({ error: 'Provide a password of 12–128 characters.' });
+    }
+    if (id.data === String(req.session.user.id)) {
+        return res.status(400).json({ error: 'Use Change Password to update your own password.' });
+    }
+
+    const passwordHash = await argon2.hash(parsed.data.password, { type: argon2.argon2id });
+    const client = await pool.connect();
+    let revokedSessionCount = 0;
+    try {
+        await client.query('BEGIN');
+        const updatedUser = await client.query('UPDATE users SET password_hash = $1 WHERE id = $2 RETURNING id', [
+            passwordHash,
+            id.data
+        ]);
+        if (!updatedUser.rowCount) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'User not found.' });
+        }
+        const revokedSessions = await client.query(
+            "DELETE FROM user_sessions WHERE sess->'user'->>'id' = $1",
+            [id.data]
+        );
+        revokedSessionCount = revokedSessions.rowCount;
+        await client.query('COMMIT');
+    } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+    } finally {
+        client.release();
+    }
+
+    securityEvent(req, 'admin_user_password_reset', {
+        actorId: req.session.user.id,
+        targetId: id.data,
+        revokedSessions: revokedSessionCount
+    });
+    res.json({ message: 'The user password has been reset.' });
 }));
 
 app.delete('/api/users/:id', requireCsrf, requireAuth, requireAdmin, asyncRoute(async (req, res) => {
@@ -266,6 +427,10 @@ app.delete('/api/users/:id', requireCsrf, requireAuth, requireAdmin, asyncRoute(
                 return res.status(409).json({ error: 'The last administrator cannot be deleted.' });
             }
         }
+        await client.query(
+            "DELETE FROM user_sessions WHERE sess->'user'->>'id' = $1",
+            [String(id.data)]
+        );
         await client.query('DELETE FROM users WHERE id = $1', [id.data]);
         await client.query('COMMIT');
     } catch (error) {
@@ -274,6 +439,10 @@ app.delete('/api/users/:id', requireCsrf, requireAuth, requireAdmin, asyncRoute(
     } finally {
         client.release();
     }
+    securityEvent(req, 'admin_user_deleted', {
+        actorId: req.session.user.id,
+        targetId: id.data
+    });
     res.status(204).end();
 }));
 
@@ -299,6 +468,10 @@ app.post('/api/links', requireCsrf, requireAuth, requireAdmin, asyncRoute(async 
                    description AS "desc", icon`,
         [link.title, link.category, link.tag, link.dcUrl, link.drUrl, link.desc, link.icon]
     );
+    securityEvent(req, 'admin_portal_link_created', {
+        actorId: req.session.user.id,
+        targetId: result.rows[0].id
+    });
     res.status(201).json(result.rows[0]);
 }));
 
@@ -312,7 +485,13 @@ app.get('/l1_portal_client.html', (req, res) => res.sendFile(path.join(projectDi
 app.get('/auth.js', (req, res) => res.sendFile(path.join(projectDir, 'auth.js')));
 
 app.use((error, req, res, next) => {
-    console.error('Request failed:', error);
+    console.error(JSON.stringify({
+        level: 'error',
+        event: 'request_error',
+        requestId: req.requestId,
+        errorName: error.name,
+        errorCode: error.code
+    }));
     if (res.headersSent) return next(error);
     const status = Number.isInteger(error.status) && error.status >= 400 && error.status < 500
         ? error.status
@@ -340,6 +519,7 @@ async function initializeDatabase() {
             expire TIMESTAMP(6) NOT NULL
         );
         CREATE INDEX IF NOT EXISTS IDX_user_sessions_expire ON user_sessions (expire);
+        DROP TABLE IF EXISTS password_reset_tokens;
         CREATE TABLE IF NOT EXISTS portal_links (
             id BIGSERIAL PRIMARY KEY,
             title TEXT NOT NULL,
@@ -403,14 +583,53 @@ async function initializeDatabase() {
             'INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3)',
             [email.data, hash, 'admin']
         );
-        console.info(`Created initial administrator account: ${email.data}`);
+        console.info(JSON.stringify({
+            level: 'info',
+            event: 'bootstrap_admin_created',
+            email: email.data
+        }));
     }
+}
+
+async function cleanupExpiredData() {
+    const sessions = await pool.query('DELETE FROM user_sessions WHERE expire <= NOW()');
+    console.info(JSON.stringify({
+        level: 'info',
+        event: 'expired_data_cleanup',
+        sessionsDeleted: sessions.rowCount
+    }));
 }
 
 async function start() {
     await initializeDatabase();
+    await cleanupExpiredData();
+    const cleanupTimer = setInterval(() => {
+        cleanupExpiredData().catch(error => {
+            console.error(JSON.stringify({
+                level: 'error',
+                event: 'expired_data_cleanup_failed',
+                errorName: error.name,
+                errorCode: error.code
+            }));
+        });
+    }, 60 * 60 * 1000);
+    cleanupTimer.unref();
     server = app.listen(port, () => {
-        console.info(`L1 Portal server listening on port ${port}.`);
+        console.info(JSON.stringify({
+            level: 'info',
+            event: 'server_started',
+            port,
+            environment: process.env.NODE_ENV || 'development'
+        }));
+    });
+    server.on('error', error => {
+        console.error(JSON.stringify({
+            level: 'error',
+            event: 'server_start_error',
+            errorName: error.name,
+            errorCode: error.code
+        }));
+        process.exitCode = 1;
     });
 }
 
@@ -423,17 +642,30 @@ async function shutdown(signal) {
     process.exit(0);
 }
 
-process.on('SIGINT', () => shutdown('SIGINT').catch(error => {
-    console.error('Shutdown failed:', error);
-    process.exit(1);
-}));
-process.on('SIGTERM', () => shutdown('SIGTERM').catch(error => {
-    console.error('Shutdown failed:', error);
-    process.exit(1);
-}));
+if (require.main === module) {
+    process.on('SIGINT', () => shutdown('SIGINT').catch(error => {
+        console.error(JSON.stringify({ level: 'error', event: 'shutdown_failed', errorName: error.name, errorCode: error.code }));
+        process.exit(1);
+    }));
+    process.on('SIGTERM', () => shutdown('SIGTERM').catch(error => {
+        console.error(JSON.stringify({ level: 'error', event: 'shutdown_failed', errorName: error.name, errorCode: error.code }));
+        process.exit(1);
+    }));
 
-start().catch(async error => {
-    console.error('Startup failed:', error);
-    await pool.end();
-    process.exit(1);
-});
+    start().catch(async error => {
+        console.error(JSON.stringify({
+            level: 'error',
+            event: 'startup_failed',
+            errorName: error.name,
+            errorCode: error.code
+        }));
+        await pool.end();
+        process.exit(1);
+    });
+}
+
+module.exports = {
+    app,
+    pool,
+    initializeDatabase
+};

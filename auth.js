@@ -8,6 +8,7 @@ let links = [];
 let currentUser = null;
 let linkModes = JSON.parse(localStorage.getItem(STORAGE_MODES_KEY) || '{}');
 let csrfToken = '';
+let sessionCheckInProgress = false;
 let currentCategory = 'Dashboard';
 localStorage.removeItem(STORAGE_USERS_KEY);
 localStorage.removeItem(STORAGE_LINKS_KEY);
@@ -41,10 +42,53 @@ async function apiRequest(url, options = {}) {
     const response = await fetch(url, { ...options, method, headers, credentials: 'same-origin' });
     if (response.status === 204) return null;
     const payload = await response.json().catch(() => ({}));
+    if (response.status === 401 && payload.error === 'Authentication required.' && currentUser) {
+        handleSessionExpired();
+    }
     if (!response.ok) {
         throw new Error(payload.error || 'The server request failed.');
     }
     return payload;
+}
+
+function showSignedOut(message) {
+    if (!currentUser) return;
+    currentUser = null;
+    users = [];
+    links = [];
+    csrfToken = '';
+    document.getElementById('admin-modal')?.classList.add('hidden');
+    document.getElementById('add-modal')?.classList.add('hidden');
+    document.getElementById('change-password-modal')?.classList.add('hidden');
+    document.getElementById('admin-reset-password-modal')?.classList.add('hidden');
+    document.getElementById('portal-wrapper')?.classList.add('hidden');
+    document.getElementById('auth-overlay')?.classList.remove('hidden');
+    const errorBox = document.getElementById('login-error');
+    if (errorBox) {
+        errorBox.textContent = message;
+        errorBox.classList.remove('hidden');
+    }
+}
+
+function handleSessionExpired() {
+    showSignedOut('Your session has ended because your account access changed. Sign in again or contact a portal administrator.');
+}
+
+async function checkCurrentSession() {
+    if (!currentUser || sessionCheckInProgress) return;
+    sessionCheckInProgress = true;
+    try {
+        const response = await fetch('/api/auth/me', { credentials: 'same-origin' });
+        if (!response.ok) return;
+        const session = await response.json();
+        if (currentUser && !session.user) {
+            handleSessionExpired();
+        }
+    } catch (error) {
+        console.warn('Unable to verify the current portal session.', error);
+    } finally {
+        sessionCheckInProgress = false;
+    }
 }
 
 async function loadPortalData() {
@@ -101,6 +145,49 @@ async function handleLogin(event) {
             errorBox.textContent = error.message;
             errorBox.classList.remove('hidden');
         }
+    }
+}
+
+function setFormStatus(elementId, message, isError = false) {
+    const status = document.getElementById(elementId);
+    if (!status) return;
+    status.textContent = message;
+    status.className = `text-xs p-2.5 rounded border text-center font-medium ${isError
+        ? 'text-red-700 bg-red-50 border-red-200'
+        : 'text-green-800 bg-green-50 border-green-200'}`;
+}
+
+function openChangePasswordModal() {
+    const form = document.getElementById('change-password-form');
+    form?.reset();
+    const status = document.getElementById('change-password-status');
+    status?.classList.add('hidden');
+    document.getElementById('change-password-modal')?.classList.remove('hidden');
+}
+
+function closeChangePasswordModal() {
+    document.getElementById('change-password-form')?.reset();
+    document.getElementById('change-password-modal')?.classList.add('hidden');
+}
+
+async function handleChangePassword(event) {
+    event.preventDefault();
+    const oldPassword = document.getElementById('current-password').value;
+    const newPassword = document.getElementById('new-password').value;
+    const confirmPassword = document.getElementById('confirm-new-password').value;
+    if (newPassword !== confirmPassword) {
+        setFormStatus('change-password-status', 'The new passwords do not match.', true);
+        return;
+    }
+
+    try {
+        const result = await apiRequest('/api/auth/change-password', {
+            method: 'POST',
+            body: JSON.stringify({ oldPassword, newPassword })
+        });
+        showSignedOut(result.message);
+    } catch (error) {
+        setFormStatus('change-password-status', error.message, true);
     }
 }
 
@@ -418,11 +505,46 @@ function renderUsersTable() {
         <tr>
             <td class="p-3 font-semibold text-slate-900">${escapeHtml(u.email)}</td>
             <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${u.role === 'admin' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}">${escapeHtml(u.role)}</span></td>
-            <td class="p-3 text-right">
-                ${u.email !== currentUser.email ? `<button data-delete-user="${escapeHtml(u.id)}" class="text-red-500 hover:text-red-700 font-semibold">Delete</button>` : '<span class="text-slate-400">Current</span>'}
+            <td class="p-3 text-right whitespace-nowrap">
+                ${u.email !== currentUser.email
+        ? `<button data-reset-user="${escapeHtml(u.id)}" class="text-blue-600 hover:text-blue-800 font-semibold mr-2">Reset Password</button><button data-delete-user="${escapeHtml(u.id)}" class="text-red-500 hover:text-red-700 font-semibold">Delete</button>`
+        : '<span class="text-slate-400">Current account</span>'}
             </td>
         </tr>
     `).join('');
+}
+
+function openAdminResetPassword(userId) {
+    if (currentUser?.role !== 'admin') return;
+    const user = users.find(candidate => String(candidate.id) === String(userId));
+    if (!user || String(user.id) === String(currentUser.id)) return;
+    document.getElementById('admin-reset-password-form')?.reset();
+    document.getElementById('admin-reset-user-id').value = user.id;
+    document.getElementById('admin-reset-user-email').textContent = user.email;
+    document.getElementById('admin-reset-password-status')?.classList.add('hidden');
+    document.getElementById('admin-reset-password-modal')?.classList.remove('hidden');
+}
+
+function closeAdminResetPassword() {
+    document.getElementById('admin-reset-password-form')?.reset();
+    document.getElementById('admin-reset-password-modal')?.classList.add('hidden');
+}
+
+async function handleAdminResetPassword(event) {
+    event.preventDefault();
+    if (currentUser?.role !== 'admin') return;
+    const userId = document.getElementById('admin-reset-user-id').value;
+    const password = document.getElementById('admin-reset-new-password').value;
+    try {
+        const result = await apiRequest(`/api/users/${encodeURIComponent(userId)}/password`, {
+            method: 'POST',
+            body: JSON.stringify({ password })
+        });
+        closeAdminResetPassword();
+        showToast(result.message);
+    } catch (error) {
+        setFormStatus('admin-reset-password-status', error.message, true);
+    }
 }
 
 async function handleCreateUser(event) {
@@ -462,6 +584,12 @@ async function deleteUser(id) {
 // Search Event Listener
 document.addEventListener('DOMContentLoaded', () => {
     initSystem();
+    window.setInterval(checkCurrentSession, 15000);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            checkCurrentSession();
+        }
+    });
     document.addEventListener('click', event => {
         const target = event.target instanceof Element ? event.target : null;
         const button = target?.closest('button');
@@ -473,12 +601,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (action === 'open-add') openAddModal();
         if (action === 'close-add') closeAddModal();
         if (action === 'logout') logoutUser();
+        if (action === 'open-change-password') openChangePasswordModal();
+        if (action === 'close-change-password') closeChangePasswordModal();
+        if (action === 'close-admin-reset-password') closeAdminResetPassword();
         if (button.dataset.category) selectCategory(button.dataset.category);
         if (button.dataset.openCategory) openAllCategory(button.dataset.openCategory);
         if (button.dataset.linkId && ['dc', 'dr'].includes(button.dataset.linkMode)) {
             setLinkMode(button.dataset.linkId, button.dataset.linkMode);
         }
         if (button.dataset.deleteUser) deleteUser(button.dataset.deleteUser);
+        if (button.dataset.resetUser) openAdminResetPassword(button.dataset.resetUser);
 
         const copyButton = target.closest('[data-copy-url]');
         if (copyButton) {
@@ -487,6 +619,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.addEventListener('submit', event => {
         if (event.target.id === 'login-form') handleLogin(event);
+        if (event.target.id === 'change-password-form') handleChangePassword(event);
+        if (event.target.id === 'admin-reset-password-form') handleAdminResetPassword(event);
         if (event.target.id === 'create-user-form') handleCreateUser(event);
         if (event.target.id === 'add-url-form') handleAddUrl(event);
     });

@@ -35,6 +35,7 @@
                 <button type="submit" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-sm shadow-md transition-all cursor-pointer">
                     Secure Sign In
                 </button>
+                <p class="text-center text-xs text-slate-500">Forgot your password? Contact a portal administrator.</p>
             </form>
         </div>
     </div>
@@ -70,9 +71,14 @@
                     <div id="current-username" class="text-xs font-bold text-white truncate">User</div>
                     <div class="text-[10px] text-slate-300 truncate">Authenticated</div>
                 </div>
-                <button data-action="logout" class="text-xs text-red-300 hover:text-white p-2 rounded-lg bg-slate-800 hover:bg-red-600 transition-colors" title="Sign Out">
-                    <i class="fa-solid fa-right-from-bracket"></i>
-                </button>
+                <div class="flex items-center gap-1">
+                    <button data-action="open-change-password" class="text-xs text-slate-300 hover:text-white p-2 rounded-lg bg-slate-800 hover:bg-blue-600 transition-colors" title="Change Password" aria-label="Change Password">
+                        <i class="fa-solid fa-key"></i>
+                    </button>
+                    <button data-action="logout" class="text-xs text-red-300 hover:text-white p-2 rounded-lg bg-slate-800 hover:bg-red-600 transition-colors" title="Sign Out" aria-label="Sign Out">
+                        <i class="fa-solid fa-right-from-bracket"></i>
+                    </button>
+                </div>
             </div>
         </aside>
 
@@ -144,7 +150,7 @@
                                 <tr>
                                     <th class="p-3">Email</th>
                                     <th class="p-3">Role</th>
-                                    <th class="p-3 text-right">Action</th>
+                                    <th class="p-3 text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="users-table-body" class="divide-y divide-slate-200 text-slate-800"></tbody>
@@ -152,6 +158,61 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div id="change-password-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+            <div class="flex justify-between items-center pb-3 border-b">
+                <h3 class="font-bold text-base text-slate-900">Change Your Password</h3>
+                <button data-action="close-change-password" class="text-slate-400 hover:text-slate-600" aria-label="Close">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            <form id="change-password-form" class="space-y-3">
+                <div>
+                    <label for="current-password" class="block text-xs font-semibold uppercase text-slate-700 mb-1">Current Password</label>
+                    <input type="password" id="current-password" required maxlength="128" autocomplete="current-password"
+                        class="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm text-slate-900">
+                </div>
+                <div>
+                    <label for="new-password" class="block text-xs font-semibold uppercase text-slate-700 mb-1">New Password</label>
+                    <input type="password" id="new-password" required minlength="12" maxlength="128" autocomplete="new-password"
+                        class="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm text-slate-900">
+                </div>
+                <div>
+                    <label for="confirm-new-password" class="block text-xs font-semibold uppercase text-slate-700 mb-1">Confirm New Password</label>
+                    <input type="password" id="confirm-new-password" required minlength="12" maxlength="128" autocomplete="new-password"
+                        class="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm text-slate-900">
+                </div>
+                <div id="change-password-status" role="status" aria-live="polite" class="hidden text-xs p-2.5 rounded border text-center font-medium"></div>
+                <button type="submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold">Update Password</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Admin Password Reset Modal -->
+    <div id="admin-reset-password-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+            <div class="flex justify-between items-center pb-3 border-b">
+                <h3 class="font-bold text-base text-slate-900">Reset User Password</h3>
+                <button data-action="close-admin-reset-password" class="text-slate-400 hover:text-slate-600" aria-label="Close">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            <form id="admin-reset-password-form" class="space-y-3">
+                <input type="hidden" id="admin-reset-user-id">
+                <p id="admin-reset-user-email" class="text-sm font-semibold text-slate-700"></p>
+                <p class="text-xs text-slate-600">Set a temporary password of at least 12 characters. Share it through an approved secure channel and ask the user to change it after signing in.</p>
+                <div>
+                    <label for="admin-reset-new-password" class="block text-xs font-semibold uppercase text-slate-700 mb-1">Temporary Password</label>
+                    <input type="password" id="admin-reset-new-password" required minlength="12" maxlength="128" autocomplete="new-password"
+                        class="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm text-slate-900">
+                </div>
+                <div id="admin-reset-password-status" role="status" aria-live="polite" class="hidden text-xs p-2.5 rounded border text-center font-medium"></div>
+                <button type="submit" class="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-bold">Set Temporary Password</button>
+            </form>
         </div>
     </div>
 
@@ -203,7 +264,7 @@
         </div>
     </div>
 
-    <!-- Script referencing external database files -->
+    <!-- Portal client behavior -->
     <script src="auth.js"></script>
 </body>
 </html>
