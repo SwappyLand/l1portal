@@ -1,0 +1,14 @@
+[
+  {
+    "id": 1,
+    "email": "admin@sarvatra.in",
+    "password": "admin123",
+    "role": "admin"
+  },
+  {
+    "id": 2,
+    "email": "viewer@sarvatra.in",
+    "password": "viewer123",
+    "role": "viewer"
+  }
+]

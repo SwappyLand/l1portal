@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>L1 Secure Portal | Role-Based Access</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --navy-850: #0B192C;
+            --navy-900: #07101B;
+            --electric-500: #0066FF;
+            --electric-600: #0052CC;
+        }
+        .bg-navy-850 { background-color: var(--navy-850); }
+        .bg-navy-900 { background-color: var(--navy-900); }
+        .bg-electric-500 { background-color: var(--electric-500); }
+        body { font-family: 'Inter', sans-serif; background-color: #F8FAFC; color: #1e293b; }
+        .card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 25px -5px rgba(0, 102, 255, 0.1); }
+    </style>
+</head>
+<body class="h-full antialiased overflow-hidden flex flex-col">
+
+    <!-- Authentication Modal / View -->
+    <div id="auth-overlay" class="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100">
+            <div class="bg-slate-900 p-6 text-white text-center relative border-b border-slate-800">
+                <div class="h-14 w-14 rounded-xl bg-blue-600 flex items-center justify-center mx-auto mb-3 shadow-lg text-white">
+                    <i class="fa-solid fa-shield-halved text-2xl text-white"></i>
+                </div>
+                <h2 class="text-xl font-bold">L1 Secure Access Portal</h2>
+                <p class="text-xs text-blue-200 mt-1">Authenticate with your department credentials</p>
+            </div>
+            
+            <form id="login-form" onsubmit="handleLogin(event)" class="p-6 space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1">Email Address</label>
+                    <input type="email" id="login-email" required placeholder="admin@sarvatra.in" 
+                        class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1">Password</label>
+                    <input type="password" id="login-password" required placeholder="••••••••" 
+                        class="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none">
+                </div>
+                <div id="login-error" class="hidden text-xs text-red-600 bg-red-50 p-2.5 rounded border border-red-200 text-center font-medium"></div>
+                <button type="submit" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-sm shadow-md transition-all cursor-pointer">
+                    Secure Sign In
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Portal Wrapper (Hidden until logged in) -->
+    <div id="portal-wrapper" class="flex h-full w-full overflow-hidden hidden">
+        <!-- Sidebar -->
+        <aside class="w-64 bg-navy-850 text-white flex flex-col flex-shrink-0 z-20 shadow-xl border-r border-slate-800">
+            <div class="h-16 flex items-center px-6 bg-navy-900 border-b border-slate-800 justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="h-9 w-9 rounded-lg bg-electric-500 flex items-center justify-center text-white font-bold">
+                        <i class="fa-solid fa-layer-group text-lg"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-white tracking-wide text-base">L1 Portal</h1>
+                        <span id="user-role-badge" class="text-[10px] bg-blue-500 text-white px-2 py-0.5 rounded font-bold uppercase">Admin</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex-1 overflow-y-auto py-6 px-3 space-y-1.5" id="sidebar-nav"></div>
+
+            <!-- Admin Management Tab (Only visible to Admin) -->
+            <div id="admin-menu-item" class="px-3 pb-2 hidden">
+                <button onclick="openAdminModal()" class="w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl text-sm font-semibold bg-amber-500 hover:bg-amber-600 text-white shadow transition-all">
+                    <i class="fa-solid fa-users-gear w-5 text-center"></i>
+                    <span>User Management</span>
+                </button>
+            </div>
+
+            <div class="p-4 border-t border-slate-800 flex items-center justify-between bg-navy-900">
+                <div class="truncate pr-2">
+                    <div id="current-username" class="text-xs font-bold text-white truncate">User</div>
+                    <div class="text-[10px] text-slate-300 truncate">Authenticated</div>
+                </div>
+                <button onclick="logoutUser()" class="text-xs text-red-300 hover:text-white p-2 rounded-lg bg-slate-800 hover:bg-red-600 transition-colors" title="Sign Out">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Content Area -->
+        <main class="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-50">
+            <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 z-10 shadow-sm">
+                <div class="flex-1 max-w-lg mr-4">
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                        </span>
+                        <input type="text" id="global-search" placeholder="Search across all department URLs, tools, or IPs..." 
+                            class="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button id="add-url-btn" onclick="openAddModal()" class="hidden flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition-all">
+                        <i class="fa-solid fa-plus text-xs"></i>
+                        <span>Add Custom URL</span>
+                    </button>
+                </div>
+            </header>
+
+            <div class="flex-1 overflow-y-auto p-8 space-y-8" id="main-content-area">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+                    <div>
+                        <h2 id="section-title" class="text-2xl font-bold text-slate-900 tracking-tight">All Department Portals</h2>
+                        <p id="section-subtitle" class="text-sm text-slate-600 mt-0.5">Showing registered internal operational links</p>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <div id="open-all-container"></div>
+                        <span class="text-xs font-semibold bg-slate-200 text-slate-800 px-3 py-2 rounded-lg" id="result-count-badge">0 URLs</span>
+                    </div>
+                </div>
+
+                <div id="urls-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- User Management Admin Modal -->
+    <div id="admin-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
+            <div class="px-6 py-4 bg-navy-850 text-white flex items-center justify-between">
+                <h3 class="font-bold text-base"><i class="fa-solid fa-users-gear mr-2"></i>User Access Management (Admin Only)</h3>
+                <button onclick="closeAdminModal()" class="text-slate-300 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="p-6 space-y-6">
+                <!-- Add User Form -->
+                <form onsubmit="handleCreateUser(event)" class="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                    <h4 class="text-xs font-bold uppercase text-slate-700">Create New User</h4>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <input type="email" id="new-user-email" required placeholder="user@sarvatra.in" class="px-3 py-2 border rounded-lg text-xs">
+                        <input type="password" id="new-user-pass" required placeholder="Password" class="px-3 py-2 border rounded-lg text-xs">
+                        <select id="new-user-role" class="px-3 py-2 border rounded-lg text-xs bg-white text-slate-800">
+                            <option value="viewer">Normal Viewer</option>
+                            <option value="admin">Administrator</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold">Add User</button>
+                </form>
+
+                <!-- Users List Table -->
+                <div>
+                    <h4 class="text-xs font-bold uppercase text-slate-700 mb-2">Registered System Users</h4>
+                    <div class="border rounded-xl overflow-hidden bg-white">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-slate-100 text-slate-700 uppercase font-semibold">
+                                <tr>
+                                    <th class="p-3">Email</th>
+                                    <th class="p-3">Role</th>
+                                    <th class="p-3 text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-table-body" class="divide-y divide-slate-200 text-slate-800"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add URL Modal -->
+    <div id="add-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4">
+            <div class="flex justify-between items-center pb-3 border-b">
+                <h3 class="font-bold text-base text-slate-900">Add Operational URL</h3>
+                <button onclick="closeAddModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <form onsubmit="handleAddUrl(event)" class="space-y-3 text-xs">
+                <div>
+                    <label class="block font-semibold mb-1 uppercase text-slate-700">Title</label>
+                    <input type="text" id="add-title" required class="w-full p-2.5 border rounded-lg text-slate-900">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-semibold mb-1 uppercase text-slate-700">Category</label>
+                        <select id="add-category" class="w-full p-2.5 border rounded-lg bg-white text-slate-900">
+                            <option value="Monitoring">Monitoring</option>
+                            <option value="Enterprise">Enterprise</option>
+                            <option value="Gateway">Gateway</option>
+                            <option value="Switch">Switch</option>
+                            <option value="Admin">Admin</option>
+                            <option value="SMS">SMS</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block font-semibold mb-1 uppercase text-slate-700">Tag</label>
+                        <input type="text" id="add-tag" placeholder="UPI / ATM" class="w-full p-2.5 border rounded-lg text-slate-900">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-semibold mb-1 uppercase text-slate-700">DC URL</label>
+                        <input type="text" id="add-dc" required class="w-full p-2.5 border rounded-lg text-slate-900">
+                    </div>
+                    <div>
+                        <label class="block font-semibold mb-1 uppercase text-slate-700">DR URL (Optional)</label>
+                        <input type="text" id="add-dr" class="w-full p-2.5 border rounded-lg text-slate-900">
+                    </div>
+                </div>
+                <div class="flex justify-end space-x-2 pt-3 border-t">
+                    <button type="button" onclick="closeAddModal()" class="px-4 py-2 border rounded-lg text-slate-600">Cancel</button>
+                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg font-bold">Save URL</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Script referencing external database files -->
+    <script src="auth.js"></script>
+</body>
+</html>
