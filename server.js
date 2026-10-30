@@ -475,6 +475,64 @@ app.post('/api/links', requireCsrf, requireAuth, requireAdmin, asyncRoute(async 
     res.status(201).json(result.rows[0]);
 }));
 
+app.put('/api/links/:id', requireCsrf, requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+    const id = z.string()
+        .regex(/^[1-9]\d{0,18}$/)
+        .refine(value => BigInt(value) <= 9223372036854775807n)
+        .safeParse(req.params.id);
+    if (!id.success) {
+        return res.status(400).json({ error: 'Invalid link ID.' });
+    }
+
+    const parsed = linkSchema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: 'Provide a title, category, valid DC URL, and valid optional DR URL.' });
+    }
+
+    const link = parsed.data;
+    const result = await pool.query(
+        `UPDATE portal_links
+         SET title = $1, category = $2, tag = $3, dc_url = $4, dr_url = $5, description = $6, icon = $7
+         WHERE id = $8
+         RETURNING id, title, category, tag, dc_url AS "dcUrl", dr_url AS "drUrl",
+                   description AS "desc", icon`,
+        [link.title, link.category, link.tag, link.dcUrl, link.drUrl, link.desc, link.icon, id.data]
+    );
+    if (!result.rowCount) {
+        return res.status(404).json({ error: 'Portal URL not found.' });
+    }
+
+    securityEvent(req, 'admin_portal_link_updated', {
+        actorId: req.session.user.id,
+        targetId: result.rows[0].id
+    });
+    res.json(result.rows[0]);
+}));
+
+app.delete('/api/links/:id', requireCsrf, requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+    const id = z.string()
+        .regex(/^[1-9]\d{0,18}$/)
+        .refine(value => BigInt(value) <= 9223372036854775807n)
+        .safeParse(req.params.id);
+    if (!id.success) {
+        return res.status(400).json({ error: 'Invalid link ID.' });
+    }
+
+    const result = await pool.query(
+        'DELETE FROM portal_links WHERE id = $1 RETURNING id',
+        [id.data]
+    );
+    if (!result.rowCount) {
+        return res.status(404).json({ error: 'Portal URL not found.' });
+    }
+
+    securityEvent(req, 'admin_portal_link_deleted', {
+        actorId: req.session.user.id,
+        targetId: result.rows[0].id
+    });
+    res.status(204).end();
+}));
+
 app.use(express.static(path.join(projectDir, 'public'), {
     dotfiles: 'deny',
     etag: true,

@@ -174,14 +174,60 @@ test('authentication, password management, authorization, and portal API flows',
         const linksBefore = await admin.get('/api/links').expect(200);
         assert.ok(linksBefore.body.length > 0);
         const createdLink = await admin.post('/api/links')
-            .set('X-CSRF-Token', adminCsrf)
+            .set('X-CSRF-Token', csrf)
             .send({
                 title: 'Integration test link',
                 category: 'Other',
-                dcUrl: 'https://example.test/portal'
+                tag: 'Initial',
+                dcUrl: 'https://example.test/portal',
+                desc: 'Initial link description',
+                icon: 'fa-link'
             })
             .expect(201);
         assert.equal(createdLink.body.title, 'Integration test link');
+
+        const updatedLink = await admin.put(`/api/links/${createdLink.body.id}`)
+            .set('X-CSRF-Token', csrf)
+            .send({
+                title: 'Updated integration link',
+                category: 'Monitoring',
+                tag: 'Updated',
+                dcUrl: 'https://example.test/updated',
+                drUrl: 'https://backup.example.test/updated',
+                desc: 'Updated link description',
+                icon: 'fa-chart-line'
+            })
+            .expect(200);
+        assert.equal(updatedLink.body.title, 'Updated integration link');
+        assert.equal(updatedLink.body.drUrl, 'https://backup.example.test/updated');
+        assert.equal(updatedLink.body.desc, 'Updated link description');
+
+        await viewer.put(`/api/links/${createdLink.body.id}`)
+            .set('X-CSRF-Token', viewerCsrf)
+            .send({ title: 'Unauthorized edit', category: 'Other', dcUrl: 'https://example.test' })
+            .expect(403);
+        await viewer.delete(`/api/links/${createdLink.body.id}`)
+            .set('X-CSRF-Token', viewerCsrf)
+            .expect(403);
+        await admin.put(`/api/links/${createdLink.body.id}`)
+            .set('X-CSRF-Token', csrf)
+            .send({ title: '', category: 'Unknown', dcUrl: 'javascript:alert(1)' })
+            .expect(400);
+
+        const storedUpdatedLink = (await admin.get('/api/links').expect(200)).body
+            .find(link => String(link.id) === String(createdLink.body.id));
+        assert.equal(storedUpdatedLink.title, 'Updated integration link');
+        await admin.delete(`/api/links/${createdLink.body.id}`)
+            .set('X-CSRF-Token', csrf)
+            .expect(204);
+        await admin.delete(`/api/links/${createdLink.body.id}`)
+            .set('X-CSRF-Token', csrf)
+            .expect(404);
+        assert.equal(
+            (await admin.get('/api/links').expect(200)).body
+                .some(link => String(link.id) === String(createdLink.body.id)),
+            false
+        );
 
         await admin.delete(`/api/users/${createdUser.body.id}`)
             .set('X-CSRF-Token', adminCsrf)

@@ -221,152 +221,62 @@
 },
 {
 "id": 23,
-"title": "42cardsJana",
+"title": "Jana",
 "category": "Enterprise",
 "tag": "Enterprise",
-"dcUrl": "http://10.249.249.5:49052/smt/#/42cardsJana",
+"dcUrl": "http://10.249.249.5:49052/smt/#/janaupi",
 "drUrl": "",
 "desc": "Enterprise SMT monitoring endpoint for Jana.",
 "icon": "fa-building"
 },
 {
 "id": 24,
-"title": "42cardsNSDL",
+"title": "NSDL",
 "category": "Enterprise",
 "tag": "Enterprise",
-"dcUrl": "http://10.249.249.5:49052/smt/#/42cardsNSDL",
+"dcUrl": "http://10.249.249.5:49052/smt/#!/nsdlupi",
 "drUrl": "",
 "desc": "Enterprise SMT monitoring endpoint for NSDL.",
 "icon": "fa-building"
 },
 {
 "id": 25,
-"title": "42cardsEquitas",
+"title": "Equitas",
 "category": "Enterprise",
 "tag": "Enterprise",
-"dcUrl": "http://10.249.249.5:49052/smt/#/42cardsEquitas",
+"dcUrl": "http://10.249.249.5:49052/smt/#!/aepsapplication",
 "drUrl": "",
 "desc": "Enterprise SMT monitoring endpoint for Equitas.",
 "icon": "fa-building"
 },
 {
 "id": 26,
-"title": "42cardsUtkarsh",
+"title": "Utkarsh",
 "category": "Enterprise",
 "tag": "Enterprise",
-"dcUrl": "http://10.249.249.5:49052/smt/#/42cardsUtkarsh",
+"dcUrl": "http://10.249.249.5:49052/smt/#!/usmf",
 "drUrl": "",
 "desc": "Enterprise SMT monitoring endpoint for Utkarsh.",
 "icon": "fa-building"
 },
 {
 "id": 27,
-"title": "42cardsBalancehero",
+"title": "Balancehero",
 "category": "Enterprise",
 "tag": "Enterprise",
-"dcUrl": "http://10.249.249.5:49052/smt/#/42cardsBalancehero",
+"dcUrl": "http://10.249.249.5:49052/smt/#!/balanceupi",
 "drUrl": "",
 "desc": "Enterprise SMT monitoring endpoint for Balancehero.",
 "icon": "fa-building"
 },
 {
 "id": 28,
-"title": "42cardsPinelabs",
+"title": "Pinelabs",
 "category": "Enterprise",
 "tag": "Enterprise",
-"dcUrl": "http://10.249.249.5:49052/smt/#/42cardsPinelabs",
+"dcUrl": "http://10.249.249.5:49052/smt/#!/ppi",
 "drUrl": "",
 "desc": "Enterprise SMT monitoring endpoint for Pinelabs.",
-"icon": "fa-building"
-},
-{
-"id": 29,
-"title": "42cardsCapital",
-"category": "Enterprise",
-"tag": "Enterprise",
-"dcUrl": "http://10.249.249.5:49052/smt/#/42cardsCapital",
-"drUrl": "",
-"desc": "Enterprise SMT monitoring endpoint for Capital.",
-"icon": "fa-building"
-},
-{
-"id": 30,
-"title": "42cardsSuryoday",
-"category": "Enterprise",
-"tag": "Enterprise",
-"dcUrl": "http://10.249.249.5:49052/smt/#/42cardsSuryoday",
-"drUrl": "",
-"desc": "Enterprise SMT monitoring endpoint for Suryoday.",
-"icon": "fa-building"
-},
-{
-"id": 31,
-"title": "42cardsFino",
-"category": "Enterprise",
-"tag": "Enterprise",
-"dcUrl": "http://10.249.249.5:49052/smt/#/42cardsFino",
-"drUrl": "",
-"desc": "Enterprise SMT monitoring endpoint for Fino.",
-"icon": "fa-building"
-},
-{
-"id": 32,
-"title": "42cardsAU",
-"category": "Enterprise",
-"tag": "Enterprise",
-"dcUrl": "http://10.249.249.5:49052/smt/#/42cardsAU",
-"drUrl": "",
-"desc": "Enterprise SMT monitoring endpoint for AU Small Finance.",
-"icon": "fa-building"
-},
-{
-"id": 33,
-"title": "42cardsShivalik",
-"category": "Enterprise",
-"tag": "Enterprise",
-"dcUrl": "http://10.249.249.5:49052/smt/#/42cardsShivalik",
-"drUrl": "",
-"desc": "Enterprise SMT monitoring endpoint for Shivalik Bank.",
-"icon": "fa-building"
-},
-{
-"id": 34,
-"title": "42cardsKashi",
-"category": "Enterprise",
-"tag": "Enterprise",
-"dcUrl": "http://10.249.249.5:49052/smt/#/42cardsKashi",
-"drUrl": "",
-"desc": "Enterprise SMT monitoring endpoint for Kashi Gomti Samyut Gramin Bank.",
-"icon": "fa-building"
-},
-{
-"id": 35,
-"title": "42cardsZest",
-"category": "Enterprise",
-"tag": "Enterprise",
-"dcUrl": "http://10.249.249.5:49052/smt/#/42cardsZest",
-"drUrl": "",
-"desc": "Enterprise SMT monitoring endpoint for ZestMoney.",
-"icon": "fa-building"
-},
-{
-"id": 36,
-"title": "42cardsNorthEast",
-"category": "Enterprise",
-"tag": "Enterprise",
-"dcUrl": "http://10.249.249.5:49052/smt/#/42cardsNorthEast",
-"drUrl": "",
-"desc": "Enterprise SMT monitoring endpoint for North East Small Finance Bank.",
-"icon": "fa-building"
-},
-{
-"id": 37,
-"title": "42cardsJanaSFB",
-"category": "Enterprise",
-"tag": "Enterprise",
-"dcUrl": "http://10.249.249.5:49052/smt/#/42cardsJanaSFB",
-"drUrl": "",
-"desc": "Enterprise SMT monitoring endpoint for Jana SFB.",
 "icon": "fa-building"
 }
 ]

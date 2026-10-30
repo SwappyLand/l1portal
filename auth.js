@@ -95,9 +95,30 @@ async function loadPortalData() {
     links = await apiRequest('/api/links');
 }
 
+async function logoutSessionOnReload() {
+    const navigation = performance.getEntriesByType('navigation')[0];
+    if (navigation?.type !== 'reload') return;
+
+    const sessionResponse = await fetch('/api/auth/me', { credentials: 'same-origin' });
+    if (!sessionResponse.ok) throw new Error('Unable to verify the current portal session.');
+    const session = await sessionResponse.json();
+    if (!session.user) return;
+
+    const csrfResponse = await fetch('/api/auth/csrf', { credentials: 'same-origin' });
+    if (!csrfResponse.ok) throw new Error('Unable to initialize a secure session.');
+    const { csrfToken: reloadCsrfToken } = await csrfResponse.json();
+    const logoutResponse = await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': reloadCsrfToken },
+        credentials: 'same-origin'
+    });
+    if (!logoutResponse.ok) throw new Error('Unable to end the current portal session.');
+}
+
 // --- Initialization ---
 async function initSystem() {
     try {
+        await logoutSessionOnReload();
         const [session, csrf] = await Promise.all([
             apiRequest('/api/auth/me'),
             fetch('/api/auth/csrf', { credentials: 'same-origin' }).then(async response => {
@@ -382,6 +403,16 @@ function createCardHTML(item) {
                         <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
                     </a>
                 </div>
+                ${currentUser?.role === 'admin' ? `
+                <div class="flex justify-end gap-2 mt-3">
+                    <button data-edit-link="${escapeHtml(item.id)}" class="px-3 py-1.5 rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50 text-xs font-semibold">
+                        <i class="fa-solid fa-pen-to-square mr-1"></i>Edit
+                    </button>
+                    <button data-delete-link="${escapeHtml(item.id)}" class="px-3 py-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 text-xs font-semibold">
+                        <i class="fa-solid fa-trash mr-1"></i>Delete
+                    </button>
+                </div>
+                ` : ''}
             </div>
         </div>
     `;
@@ -446,37 +477,96 @@ function openAddModal() {
         showToast("Access Denied: Admin privileges required.", true);
         return;
     }
+    document.getElementById('add-url-form')?.reset();
+    document.getElementById('add-link-id').value = '';
+    document.getElementById('add-modal-title').textContent = 'Add Operational URL';
+    document.getElementById('add-url-submit').textContent = 'Save URL';
     document.getElementById('add-modal')?.classList.remove('hidden');
 }
 
 function closeAddModal() {
     document.getElementById('add-modal')?.classList.add('hidden');
+    document.getElementById('add-url-form')?.reset();
 }
 
-function handleAddUrl(event) {
+function openEditLink(id) {
+    if (currentUser?.role !== 'admin') return;
+    const link = links.find(item => String(item.id) === String(id));
+    if (!link) {
+        showToast('This URL is no longer available. Refresh the portal and try again.', true);
+        return;
+    }
+
+    document.getElementById('add-url-form')?.reset();
+    document.getElementById('add-link-id').value = link.id;
+    document.getElementById('add-title').value = link.title;
+    document.getElementById('add-category').value = link.category;
+    document.getElementById('add-tag').value = link.tag || '';
+    document.getElementById('add-dc').value = link.dcUrl;
+    document.getElementById('add-dr').value = link.drUrl || '';
+    document.getElementById('add-desc').value = link.desc || '';
+    document.getElementById('add-icon').value = link.icon || 'fa-link';
+    document.getElementById('add-modal-title').textContent = 'Edit Operational URL';
+    document.getElementById('add-url-submit').textContent = 'Save Changes';
+    document.getElementById('add-modal')?.classList.remove('hidden');
+}
+
+async function handleAddUrl(event) {
     event.preventDefault();
     if (currentUser?.role !== 'admin') return;
 
-    const newLink = {
+    const link = {
         title: document.getElementById('add-title').value,
         category: document.getElementById('add-category').value,
         tag: document.getElementById('add-tag').value || 'Custom',
         dcUrl: document.getElementById('add-dc').value,
         drUrl: document.getElementById('add-dr').value || '',
-        desc: "Custom operational link added by administrator.",
-        icon: "fa-link"
+        desc: document.getElementById('add-desc').value,
+        icon: document.getElementById('add-icon').value || 'fa-link'
     };
 
-    apiRequest('/api/links', { method: 'POST', body: JSON.stringify(newLink) })
-        .then(link => {
-            links.push(link);
-            closeAddModal();
-            renderSidebar();
-            renderPortalContent();
-            showToast("Custom URL added successfully!");
-            event.target.reset();
-        })
-        .catch(error => showToast(error.message, true));
+    const linkId = document.getElementById('add-link-id').value;
+    try {
+        if (linkId) {
+            const updatedLink = await apiRequest(`/api/links/${encodeURIComponent(linkId)}`, {
+                method: 'PUT',
+                body: JSON.stringify(link)
+            });
+            links = links.map(item => String(item.id) === String(updatedLink.id) ? updatedLink : item);
+            showToast('URL updated successfully!');
+        } else {
+            const createdLink = await apiRequest('/api/links', {
+                method: 'POST',
+                body: JSON.stringify(link)
+            });
+            links.push(createdLink);
+            showToast('Custom URL added successfully!');
+        }
+        closeAddModal();
+        renderSidebar();
+        renderPortalContent();
+    } catch (error) {
+        showToast(error.message, true);
+    }
+}
+
+async function deleteLink(id) {
+    if (currentUser?.role !== 'admin') return;
+    const link = links.find(item => String(item.id) === String(id));
+    if (!link) return;
+    if (!window.confirm(`Delete "${link.title}"? This cannot be undone.`)) return;
+
+    try {
+        await apiRequest(`/api/links/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        links = links.filter(item => String(item.id) !== String(id));
+        delete linkModes[id];
+        localStorage.setItem(STORAGE_MODES_KEY, JSON.stringify(linkModes));
+        renderSidebar();
+        renderPortalContent();
+        showToast('URL deleted successfully.');
+    } catch (error) {
+        showToast(error.message, true);
+    }
 }
 
 async function openAdminModal() {
@@ -611,6 +701,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (button.dataset.deleteUser) deleteUser(button.dataset.deleteUser);
         if (button.dataset.resetUser) openAdminResetPassword(button.dataset.resetUser);
+        if (button.dataset.editLink) openEditLink(button.dataset.editLink);
+        if (button.dataset.deleteLink) deleteLink(button.dataset.deleteLink);
 
         const copyButton = target.closest('[data-copy-url]');
         if (copyButton) {
